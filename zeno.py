@@ -49,7 +49,7 @@ m.load_state_dict(torch.load(f'{PATH}models/gen_0_dict', map_location=lambda sto
 m.eval()
 
 def get_next(inp):
-    idxs = TEXT.numericalize(inp).cpu()
+    idxs = TEXT.numericalize(inp, device=-1)
     pid = idxs.transpose(0,1)
     pid = pid.cpu()
     vpid = VV(pid)
