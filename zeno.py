@@ -1,5 +1,7 @@
+import json
+
 # Flask stuff
-from flask import Flask, url_for
+from flask import Flask, url_for, make_response
 from flask_classful import FlaskView, route
 
 # FastAI, PyTorch, NLP stuff
@@ -10,6 +12,18 @@ from torchtext import vocab, data
 
 app = Flask(__name__)
 
+# Make a representation for the flask view
+def output_json(data, code, headers=None):
+    content_type = 'application/json'
+    dumped = json.dumps(data)
+    if headers:
+        headers.update({'Content-Type': content_type})
+    else:
+        headers = {'Content-Type': content_type}
+    response = make_response(dumped, code, headers)
+    return response
+
+# Define LSTM model class
 class CharSeqStatefulLSTM(nn.Module):
     def __init__(self, vocab_size, n_fac, bs, nl):
         super().__init__()
@@ -31,12 +45,12 @@ class CharSeqStatefulLSTM(nn.Module):
         self.h = (V(torch.zeros(self.nl, bs, n_hidden)),
                   V(torch.zeros(self.nl, bs, n_hidden)))
 
+# Set up the paths
 PATH='data/proverbs/'
-
 TRN_PATH = 'train/'
 VAL_PATH = 'valid/'
-TRN = f'{PATH}{TRN_PATH}'
-VAL = f'{PATH}{VAL_PATH}'
+TRN = PATH + TRN_PATH
+VAL = PATH + VAL_PATH
 
 TEXT = data.Field(lower=True, tokenize=list)
 bs=64; bptt=8; n_fac=42; n_hidden=128
@@ -45,11 +59,12 @@ FILES = dict(train=TRN_PATH, validation=VAL_PATH, test=VAL_PATH)
 md = LanguageModelData.from_text_files(PATH, TEXT, **FILES, bs=bs, bptt=bptt, min_freq=3)
 
 m = CharSeqStatefulLSTM(md.nt, n_fac, 256, 2)
-m.load_state_dict(torch.load(f'{PATH}models/gen_0_dict', map_location=lambda storage, loc: storage))
+m.load_state_dict(torch.load((PATH + 'models/gen_0_dict'), map_location=lambda storage, loc: storage))
 m.eval()
 
+# Predict the next character
 def get_next(inp):
-    idxs = TEXT.numericalize(inp).cpu()
+    idxs = TEXT.numericalize(inp, device=-1)
     pid = idxs.transpose(0,1)
     pid = pid.cpu()
     vpid = VV(pid)
@@ -58,6 +73,7 @@ def get_next(inp):
     r = torch.multinomial(p[-1].exp(), 1)
     return TEXT.vocab.itos[to_np(r)[0]]
 
+# get_next based on input string
 def get_next_n(inp, n):
     res = inp
     for i in range(n):
@@ -67,14 +83,16 @@ def get_next_n(inp, n):
         if c == '.': break
     return res
 
+# Define flask view for returning API requests
 class ProverbsView(FlaskView):    
     route_base = '/zenobot'
+    representations = {'application/json': output_json}
 
     @route('/proverb/<input>')
     def get_proverb(self, input):
         input = str(input)
         proverb = get_next_n(input + " ", 1000)
-        return proverb
+        return {'proverb': proverb}
 
 ProverbsView.register(app)
 
