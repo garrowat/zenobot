@@ -59,7 +59,7 @@ FILES = dict(train=TRN_PATH, validation=VAL_PATH, test=VAL_PATH)
 md = LanguageModelData.from_text_files(PATH, TEXT, **FILES, bs=bs, bptt=bptt, min_freq=3)
 
 m = CharSeqStatefulLSTM(md.nt, n_fac, 256, 2)
-m.load_state_dict(torch.load((PATH + 'models/gen_0_dict'), map_location=lambda storage, loc: storage))
+m.load_state_dict(torch.load(PATH + 'models/gen_0_dict', map_location=lambda storage, loc: storage))
 m.eval()
 
 # Predict the next character
