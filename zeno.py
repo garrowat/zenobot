@@ -47,10 +47,16 @@ class CharSeqStatefulLSTM(nn.Module):
 
 # Set up the paths
 PATH='data/proverbs/'
+PATH2='data/proverbs2/'
+PATH3='data/proverbs3/'
 TRN_PATH = 'train/'
 VAL_PATH = 'valid/'
 TRN = PATH + TRN_PATH
 VAL = PATH + VAL_PATH
+TRN2 = PATH2 + TRN_PATH
+VAL2 = PATH2 + VAL_PATH
+TRN3 = PATH3 + TRN_PATH
+VAL3 = PATH3 + VAL_PATH
 
 TEXT = data.Field(lower=True, tokenize=list)
 bs=64; bptt=8; n_fac=42; n_hidden=128
@@ -62,22 +68,41 @@ m = CharSeqStatefulLSTM(md.nt, n_fac, 256, 2)
 m.load_state_dict(torch.load(PATH + 'models/gen_0_dict', map_location=lambda storage, loc: storage))
 m.eval()
 
+FILES2 = dict(train=TRN_PATH, validation=VAL_PATH, test=VAL_PATH)
+md2 = LanguageModelData.from_text_files(PATH2, TEXT, **FILES, bs=bs, bptt=bptt, min_freq=3)
+
+m2 = CharSeqStatefulLSTM(md2.nt, n_fac, 256, 2)
+m2.load_state_dict(torch.load(PATH2 + 'models/gen_1_dict', map_location=lambda storage, loc: storage))
+m2.eval()
+
+FILES3 = dict(train=TRN_PATH, validation=VAL_PATH, test=VAL_PATH)
+md3 = LanguageModelData.from_text_files(PATH3, TEXT, **FILES, bs=bs, bptt=bptt, min_freq=3)
+
+m3 = CharSeqStatefulLSTM(md3.nt, n_fac, 256, 2)
+m3.load_state_dict(torch.load(PATH3 + 'models/gen_2_dict', map_location=lambda storage, loc: storage))
+m3.eval()
+
 # Predict the next character
-def get_next(inp):
+def get_next(inp, gen):
+    if gen == 1:
+        sel_m = m2
+    else if gen == 2:
+        sel_m = m3
+    else sel_m = m
     idxs = TEXT.numericalize(inp, device=-1)
     pid = idxs.transpose(0,1)
     pid = pid.cpu()
     vpid = VV(pid)
     vpid = vpid.cpu()
-    p = m(vpid)
+    p = sel_m(vpid)
     r = torch.multinomial(p[-1].exp(), 1)
     return TEXT.vocab.itos[to_np(r)[0]]
 
 # get_next based on input string
-def get_next_n(inp, n):
+def get_next_n(inp, n, gen):
     res = inp
     for i in range(n):
-        c = get_next(inp)
+        c = get_next(inp, gen)
         res += c
         inp = inp[1:]+c
         if c == '.': break
@@ -88,10 +113,10 @@ class ProverbsView(FlaskView):
     route_base = '/zenobot'
     representations = {'application/json': output_json}
 
-    @route('/proverb/<input>')
+    @route('/proverb/<gen>/<input>')
     def get_proverb(self, input):
         input = str(input)
-        proverb = get_next_n(input + " ", 1000)
+        proverb = get_next_n(input + " ", 1000, gen)
         return {'proverb': proverb}
 
 ProverbsView.register(app)
