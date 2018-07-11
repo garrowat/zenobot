@@ -149,7 +149,7 @@ class ProverbsView(FlaskView):
     @route('/proverb/<gen>/<input>')
     def get_proverb(self, input, gen):
         input = str(input)
-        gen = gen
+        gen = int(gen)
         proverb = get_next_n(input + " ", 1000, gen)
         return {'proverb': proverb}
 
