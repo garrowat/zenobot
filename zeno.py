@@ -45,6 +45,31 @@ class CharSeqStatefulLSTM(nn.Module):
         self.h = (V(torch.zeros(self.nl, bs, n_hidden)),
                   V(torch.zeros(self.nl, bs, n_hidden)))
 
+# Define second class for our 512 hidden layer model
+class CharSeqStatefulLSTM512(nn.Module):
+    def __init__(self, vocab_size, n_fac, bs, nl):
+        super().__init__()
+        self.vocab_size,self.nl = vocab_size,nl
+        self.e = nn.Embedding(vocab_size, n_fac)
+        self.rnn = nn.LSTM(n_fac, n_hidden2, nl, dropout=0.5)
+        self.l_out = nn.Linear(n_hidden2, vocab_size)
+        self.init_hidden(bs)
+        
+    def forward(self, cs, **kwargs):
+        bs = cs[0].size(0)
+        if self.h[0].size(1) != bs: self.init_hidden(bs)
+        self.rnn.flatten_parameters()
+        self.h = (self.h[0].cpu(), self.h[1].cpu())
+        ecs = self.e(cs)
+        outp,h = self.rnn(ecs, self.h)
+        #pdb.set_trace()
+        #self.h = repackage_var(h)
+        return F.log_softmax(self.l_out(outp), dim=-1).view(-1, self.vocab_size)
+    
+    def init_hidden(self, bs):
+        self.h = (V(torch.zeros(self.nl, bs, n_hidden2)),
+                  V(torch.zeros(self.nl, bs, n_hidden2)))
+
 # Set up the paths
 PATH='data/proverbs/'
 PATH2='data/proverbs2/'
@@ -61,6 +86,9 @@ VAL3 = PATH3 + VAL_PATH
 TEXT = data.Field(lower=True, tokenize=list)
 bs=64; bptt=8; n_fac=42; n_hidden=128
 
+TEXT3 = data.Field(lower=True, tokenize=list)
+bs=64; bptt=8; n_fac=42; n_hidden2=512
+
 FILES = dict(train=TRN_PATH, validation=VAL_PATH, test=VAL_PATH)
 md = LanguageModelData.from_text_files(PATH, TEXT, **FILES, bs=bs, bptt=bptt, min_freq=3)
 
@@ -76,27 +104,32 @@ m2.load_state_dict(torch.load(PATH2 + 'models/gen_1_dict', map_location=lambda s
 m2.eval()
 
 FILES3 = dict(train=TRN_PATH, validation=VAL_PATH, test=VAL_PATH)
-md3 = LanguageModelData.from_text_files(PATH3, TEXT, **FILES, bs=bs, bptt=bptt, min_freq=3)
+md3 = LanguageModelData.from_text_files(PATH3, TEXT3, **FILES, bs=bs, bptt=bptt, min_freq=3)
 
-m3 = CharSeqStatefulLSTM(md3.nt, n_fac, 256, 2)
+m3 = CharSeqStatefulLSTM512(md3.nt, n_fac, 256, 2)
 m3.load_state_dict(torch.load(PATH3 + 'models/gen_2_dict', map_location=lambda storage, loc: storage))
 m3.eval()
 
 # Predict the next character
 def get_next(inp, gen):
+    new_TEXT = ''
     if gen == 1:
         sel_m = m2
-    else if gen == 2:
+        new_TEXT = TEXT
+    elif gen == 2:
         sel_m = m3
-    else sel_m = m
-    idxs = TEXT.numericalize(inp, device=-1)
+        new_TEXT = TEXT3
+    else: 
+        sel_m = m
+        new_TEXT = TEXT
+    idxs = new_TEXT.numericalize(inp, device=-1)
     pid = idxs.transpose(0,1)
     pid = pid.cpu()
     vpid = VV(pid)
     vpid = vpid.cpu()
     p = sel_m(vpid)
     r = torch.multinomial(p[-1].exp(), 1)
-    return TEXT.vocab.itos[to_np(r)[0]]
+    return new_TEXT.vocab.itos[to_np(r)[0]]
 
 # get_next based on input string
 def get_next_n(inp, n, gen):
@@ -114,8 +147,9 @@ class ProverbsView(FlaskView):
     representations = {'application/json': output_json}
 
     @route('/proverb/<gen>/<input>')
-    def get_proverb(self, input):
+    def get_proverb(self, input, gen):
         input = str(input)
+        gen = gen
         proverb = get_next_n(input + " ", 1000, gen)
         return {'proverb': proverb}
 
